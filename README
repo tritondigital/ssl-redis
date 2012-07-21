@@ -1,6 +1,12 @@
 SSL-Redis
 -----------------------
 This project is a fork of the 2.4.15 stable version of Redis by antirez. 
+
+Changes in this fork are copyright 2012 Triton Digital Media, and 
+released to the public domain as open source under the BSD license. 
+All other portions of this codebase remain copyright Salvatore Sanfilippo and
+other contributors, as listed in the code.
+
 The original source is: https://github.com/antirez/redis/tree/2.4
 The home website fo redis is: http://redis.io/
 
