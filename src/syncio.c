@@ -38,17 +38,34 @@
  * point of view of the two instances (one migrating the key and one receiving
  * the key). This is why need the following blocking I/O functions. */
 
-int syncWrite(int fd, char *ptr, ssize_t size, int timeout) {
+int syncWrite(int fd, SSL* ssl, char *ptr, ssize_t size, int timeout) {
     ssize_t nwritten, ret = size;
     time_t start = time(NULL);
 
     timeout++;
     while(size) {
-        if (aeWait(fd,AE_WRITABLE,1000) & AE_WRITABLE) {
+        if (aeWait(fd,ssl,AE_WRITABLE,1000) & AE_WRITABLE) {
+
+          if( ssl ) {
+            nwritten = SSL_write( ssl, ptr, size );
+            if( nwritten < 0 ) {
+              int errorCode = SSL_get_error( ssl, nwritten );
+              if( SSL_ERROR_WANT_READ == errorCode || SSL_ERROR_WANT_WRITE == errorCode) {
+                nwritten = 0;
+              } else {
+                char error[65535];
+                ERR_error_string_n(ERR_get_error(), error, 65535);
+                redisLog( REDIS_WARNING, "SSL ERROR: %s", error);
+              }
+            }
+
+          } else {
             nwritten = write(fd,ptr,size);
-            if (nwritten == -1) return -1;
-            ptr += nwritten;
-            size -= nwritten;
+          }
+
+          if (nwritten == -1) return -1;
+          ptr += nwritten;
+          size -= nwritten;
         }
         if ((time(NULL)-start) > timeout) {
             errno = ETIMEDOUT;
@@ -58,35 +75,65 @@ int syncWrite(int fd, char *ptr, ssize_t size, int timeout) {
     return ret;
 }
 
-int syncRead(int fd, char *ptr, ssize_t size, int timeout) {
-    ssize_t nread, totread = 0;
-    time_t start = time(NULL);
+int syncRead(int fd, SSL* ssl, char *ptr, ssize_t size, int timeout) {
+  ssize_t nread, totread = 0;
+  time_t start = time(NULL);
 
-    timeout++;
-    while(size) {
-        if (aeWait(fd,AE_READABLE,1000) & AE_READABLE) {
-            nread = read(fd,ptr,size);
-            if (nread <= 0) return -1;
-            ptr += nread;
-            size -= nread;
-            totread += nread;
+  timeout++;
+  while(size) {
+    if (aeWait(fd,ssl,AE_READABLE,1000) & AE_READABLE) {
+
+      if( ssl ) {
+        nread = SSL_read(ssl, ptr, size);
+
+        if( nread <= 0 ) {
+          int errorCode = SSL_get_error( ssl, nread );
+          if( SSL_ERROR_WANT_READ == errorCode || SSL_ERROR_WANT_WRITE == errorCode) {
+            nread = 0;
+          } else {
+            int error_nbr = ERR_get_error();
+
+            if( error_nbr != 0 ) {
+              char error[65535];
+              ERR_error_string_n(error_nbr, error, 65535);
+              redisLog( REDIS_WARNING, "SSL ERROR: %s", error);
+            }
+
+            if( nread == 0 && error_nbr == 0 ) {
+              redisLog(REDIS_VERBOSE, "Client closed connection");
+            } else {
+              redisLog(REDIS_VERBOSE, "Reading from client: %s",strerror(errno));
+              nread = -1;
+            }
+
+          }
         }
-        if ((time(NULL)-start) > timeout) {
-            errno = ETIMEDOUT;
-            return -1;
-        }
+
+      } else {
+        nread = read(fd,ptr,size);
+      }
+
+      if (nread <= 0) return -1;
+      ptr += nread;
+      size -= nread;
+      totread += nread;
     }
-    return totread;
+    if ((time(NULL)-start) > timeout) {
+      errno = ETIMEDOUT;
+      return -1;
+    }
+  }
+  return totread;
 }
 
-int syncReadLine(int fd, char *ptr, ssize_t size, int timeout) {
+int syncReadLine(int fd, SSL* ssl, char *ptr, ssize_t size, int timeout) {
     ssize_t nread = 0;
 
     size--;
     while(size) {
         char c;
 
-        if (syncRead(fd,&c,1,timeout) == -1) return -1;
+        if (syncRead(fd,ssl,&c,1,timeout) == -1) return -1;
         if (c == '\n') {
             *ptr = '\0';
             if (nread && *(ptr-1) == '\r') *(ptr-1) = '\0';

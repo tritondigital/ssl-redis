@@ -557,7 +557,7 @@ void freeClient(redisClient *c) {
     aeDeleteFileEvent(server.el,c->fd,AE_WRITABLE);
     listRelease(c->reply);
     freeClientArgv(c);
-    anetCleanupSSL( &c->ssl );
+    anetCleanupSSL( &(c->ssl) );
     close(c->fd);
     /* Remove from the list of clients */
     ln = listSearchKey(server.clients,c);

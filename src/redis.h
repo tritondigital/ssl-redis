@@ -302,9 +302,9 @@ int equalStringObjects(robj *a, robj *b);
 unsigned long estimateObjectIdleTime(robj *o);
 
 /* Synchronous I/O with timeout */
-int syncWrite(int fd, char *ptr, ssize_t size, int timeout);
-int syncRead(int fd, char *ptr, ssize_t size, int timeout);
-int syncReadLine(int fd, char *ptr, ssize_t size, int timeout);
+int syncWrite(int fd, SSL* ssl, char *ptr, ssize_t size, int timeout);
+int syncRead(int fd, SSL* ssl, char *ptr, ssize_t size, int timeout);
+int syncReadLine(int fd, SSL* ssl, char *ptr, ssize_t size, int timeout);
 int fwriteBulkString(FILE *fp, char *s, unsigned long len);
 int fwriteBulkDouble(FILE *fp, double d);
 int fwriteBulkLongLong(FILE *fp, long long l);

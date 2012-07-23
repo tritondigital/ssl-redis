@@ -295,11 +295,11 @@ typedef struct blockingState {
 } blockingState;
 
 typedef struct anetSSLConnection {
-    SSL_CTX* ctx;  // SSL Context
-    SSL*  ssl;     // SSL object
-    BIO*  bio;     // The SSL BIO class
+    SSL_CTX* ctx;    // SSL Context
+    SSL*  ssl;       // SSL object
+    BIO*  bio;       // The SSL BIO class
     int   sd;        // raw client socket.
-    
+    char* conn_str;  // connection string (for master/slave)
 } anetSSLConnection;
 
 /* With multiplexing we need to take per-clinet state.
@@ -440,6 +440,7 @@ typedef struct redisServer {
     int replstate;          /* replication status if the instance is a slave */
     off_t repl_transfer_left;  /* bytes left reading .rdb  */
     int repl_transfer_s;    /* slave -> master SYNC socket */
+    anetSSLConnection repl_transfer_ssl; /* slave -> master SYNC SSL pointers */
     int repl_transfer_fd;   /* slave -> master SYNC temp file descriptor */
     char *repl_transfer_tmpfile; /* slave-> master SYNC temp file name */
     time_t repl_transfer_lastio; /* unix time of the latest read, for timeout */

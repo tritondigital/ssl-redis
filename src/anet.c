@@ -213,6 +213,95 @@ static int anetTcpGenericConnect(char *err, char *addr, int port, int flags)
     return s;
 }
 
+int anetSSLGenericConnect( char* err, char* addr, int port, int flags, anetSSLConnection* sslctn, char* certFilePath ) {
+  sslctn->sd = -1;
+  sslctn->ctx = NULL;
+  sslctn->ssl = NULL;
+  sslctn->bio = NULL;
+  sslctn->conn_str = NULL;
+
+  // Set up a SSL_CTX object, which will tell our BIO object how to do its work
+  SSL_CTX* ctx = SSL_CTX_new(SSLv23_client_method());
+  sslctn->ctx = ctx;
+
+  // Create a SSL object pointer, which our BIO object will provide.
+  SSL* ssl;
+
+  // Create our BIO object for SSL connections.
+  BIO* bio = BIO_new_ssl_connect(ctx);
+  sslctn->bio = bio;
+
+  // Failure?
+  if (bio == NULL) {
+     char errorbuf[1024];
+
+     ERR_error_string(1024,errorbuf);
+     anetSetError(err, "SSL Error: Error creating BIO: %s\n", errorbuf);
+
+     // We need to free up the SSL_CTX before we leave.
+     anetCleanupSSL( sslctn );
+     return ANET_ERR;
+  }
+
+  // Makes ssl point to bio's SSL object.
+  BIO_get_ssl(bio, &ssl);
+  sslctn->ssl = ssl;
+
+  // Set the SSL to automatically retry on failure.
+  SSL_set_mode(ssl, SSL_MODE_AUTO_RETRY);
+
+  char* connect_str = (char *)calloc( 1, strlen( addr ) + 10 );
+  sprintf( connect_str, "%s:%d", addr, port );
+  sslctn->conn_str = connect_str;
+
+  // We're connection to google.com on port 443.
+  BIO_set_conn_hostname(bio, connect_str);
+
+  SSL_CTX_load_verify_locations(ctx, NULL, certFilePath);
+
+  // Same as before, try to connect.
+  if (BIO_do_connect(bio) <= 0) {
+    char errorbuf[1024];
+    ERR_error_string(1024,errorbuf);
+    anetSetError(err, "SSL Error: Failed to connect: %s\n", errorbuf);
+    anetCleanupSSL( sslctn );
+    return ANET_ERR;
+  }
+
+  // Now we need to do the SSL handshake, so we can communicate.
+  if (BIO_do_handshake(bio) <= 0) {
+    char errorbuf[1024];
+    ERR_error_string(1024,errorbuf);
+    anetSetError(err, "SSL Error: handshake failure: %s\n", errorbuf);
+    anetCleanupSSL( sslctn );
+    return ANET_ERR;
+  }
+
+  long verify_result = SSL_get_verify_result(ssl);
+  if( verify_result == X509_V_OK) {
+    X509* peerCertificate = SSL_get_peer_certificate(ssl);
+
+    char commonName [512];
+    X509_NAME * name = X509_get_subject_name(peerCertificate);
+    X509_NAME_get_text_by_NID(name, NID_commonName, commonName, 512);
+
+    if(strcasecmp(commonName, "BradBroerman") != 0) {
+      anetSetError(err, "SSL Error: Error validating peer common name: %s\n", commonName);
+      anetCleanupSSL( sslctn );
+      return ANET_ERR;
+    }
+  }
+  else {
+     char errorbuf[1024];
+     ERR_error_string(1024,errorbuf);
+     anetSetError(err, "SSL Error: Error retrieving peer certificate: %s\n", errorbuf);
+     anetCleanupSSL( sslctn );
+     return ANET_ERR;
+  }
+
+  return BIO_get_fd( bio, NULL );
+}
+
 int anetTcpConnect(char *err, char *addr, int port)
 {
     return anetTcpGenericConnect(err,addr,port,ANET_CONNECT_NONE);
@@ -398,6 +487,7 @@ int anetSSLAccept( char *err, int fd, struct redisServer server, anetSSLConnecti
   ctn->ctx = NULL;
   ctn->ssl = NULL;
   ctn->bio = NULL;
+  ctn->conn_str = NULL;
 
   if( fd == -1 ) {
     return ANET_ERR;
@@ -552,6 +642,10 @@ void anetCleanupSSL( anetSSLConnection *ctn ) {
       // Remember, we also need to free up that SSL_CTX object!
       SSL_free(ctn->ssl);
       ctn->ssl = NULL;
+    }
+    if( NULL != ctn->conn_str ) {
+      free(ctn->conn_str);
+      ctn->conn_str = NULL;
     }
   }
 }

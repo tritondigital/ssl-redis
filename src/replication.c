@@ -155,14 +155,33 @@ void sendBulkToSlave(aeEventLoop *el, int fd, void *privdata, int mask) {
 
         bulkcount = sdscatprintf(sdsempty(),"$%lld\r\n",(unsigned long long)
             slave->repldbsize);
-        if (write(fd,bulkcount,sdslen(bulkcount)) != (signed)sdslen(bulkcount))
-        {
-            sdsfree(bulkcount);
-            freeClient(slave);
-            return;
+
+        nwritten = 0;
+        if( slave->ssl.ssl ) {
+          nwritten = SSL_write(slave->ssl.ssl,bulkcount,sdslen(bulkcount));
+          if( nwritten < 0 ) {
+            int errorCode = SSL_get_error( slave->ssl.ssl, nwritten );
+            if( SSL_ERROR_WANT_READ == errorCode || SSL_ERROR_WANT_WRITE == errorCode) {
+              nwritten = 0;
+            } else {
+              char error[65535];
+              ERR_error_string_n(ERR_get_error(), error, 65535);
+              redisLog( REDIS_WARNING, "SSL ERROR: %s", error);
+            }
+          }
+        } else {
+          nwritten = write(fd,bulkcount,sdslen(bulkcount));
         }
+
+        if( nwritten != (signed)sdslen(bulkcount) ) {
+          sdsfree(bulkcount);
+          freeClient(slave);
+          return;
+        }
+
         sdsfree(bulkcount);
     }
+
     lseek(slave->repldbfd,slave->repldboff,SEEK_SET);
     buflen = read(slave->repldbfd,buf,REDIS_IOBUF_LEN);
     if (buflen <= 0) {
@@ -171,12 +190,33 @@ void sendBulkToSlave(aeEventLoop *el, int fd, void *privdata, int mask) {
         freeClient(slave);
         return;
     }
-    if ((nwritten = write(fd,buf,buflen)) == -1) {
+
+    nwritten = 0;
+    if( slave->ssl.ssl ) {
+      nwritten = SSL_write(slave->ssl.ssl,buf,buflen);
+      if( nwritten < 0 ) {
+        int errorCode = SSL_get_error( slave->ssl.ssl, nwritten );
+        if( SSL_ERROR_WANT_READ == errorCode || SSL_ERROR_WANT_WRITE == errorCode) {
+          nwritten = 0;
+        } else {
+          char error[65535];
+          ERR_error_string_n(ERR_get_error(), error, 65535);
+          redisLog( REDIS_WARNING, "SSL ERROR: %s", error);
+        }
+      }
+    } else {
+      nwritten = write(fd,buf,buflen);
+      if( nwritten == -1 ){
         redisLog(REDIS_VERBOSE,"Write error sending DB to slave: %s",
-            strerror(errno));
+        strerror(errno));
+      }
+    }
+
+    if(nwritten == -1) {
         freeClient(slave);
         return;
     }
+
     slave->repldboff += nwritten;
     if (slave->repldboff == slave->repldbsize) {
         close(slave->repldbfd);
@@ -258,6 +298,7 @@ void replicationAbortSyncTransfer(void) {
     redisAssert(server.replstate == REDIS_REPL_TRANSFER);
 
     aeDeleteFileEvent(server.el,server.repl_transfer_s,AE_READABLE);
+    anetCleanupSSL( &server.repl_transfer_ssl );
     close(server.repl_transfer_s);
     close(server.repl_transfer_fd);
     unlink(server.repl_transfer_tmpfile);
@@ -273,10 +314,11 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
     REDIS_NOTUSED(privdata);
     REDIS_NOTUSED(mask);
 
+    // TODO:
     /* If repl_transfer_left == -1 we still have to read the bulk length
      * from the master reply. */
     if (server.repl_transfer_left == -1) {
-        if (syncReadLine(fd,buf,1024,server.repl_syncio_timeout) == -1) {
+        if (syncReadLine(fd,server.repl_transfer_ssl.ssl,buf,1024,server.repl_syncio_timeout) == -1) {
             redisLog(REDIS_WARNING,
                 "I/O error reading bulk count from MASTER: %s",
                 strerror(errno));
@@ -306,20 +348,49 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
     }
 
     /* Read bulk data */
-    readlen = (server.repl_transfer_left < (signed)sizeof(buf)) ?
-        server.repl_transfer_left : (signed)sizeof(buf);
-    nread = read(fd,buf,readlen);
-    if (nread <= 0) {
+    readlen = (server.repl_transfer_left < (signed)sizeof(buf)) ? server.repl_transfer_left : (signed)sizeof(buf);
+
+    if( server.repl_transfer_ssl.ssl ) {
+      nread = SSL_read(server.repl_transfer_ssl.ssl, buf, readlen);
+      if( nread <= 0 ) {
+        int errorCode = SSL_get_error( server.repl_transfer_ssl.ssl, nread );
+        if( SSL_ERROR_WANT_READ == errorCode || SSL_ERROR_WANT_WRITE == errorCode) {
+          nread = 0;
+        } else {
+          int error_nbr = ERR_get_error();
+
+          if( error_nbr != 0 ) {
+            char error[65535];
+            ERR_error_string_n(error_nbr, error, 65535);
+            redisLog( REDIS_WARNING, "SSL ERROR: %s", error);
+          }
+
+          if( nread == 0 && error_nbr == 0 ) {
+            redisLog(REDIS_WARNING, "Client closed connection while trying to sync with MASTER");
+          } else {
+            redisLog(REDIS_WARNING, "Error reading from client while trying to sync with MASTER: %s",strerror(errno));
+          }
+        }
+      }
+    } else {
+      nread = read(fd,buf,readlen);
+      if (nread <= 0) {
         redisLog(REDIS_WARNING,"I/O error trying to sync with MASTER: %s",
-            (nread == -1) ? strerror(errno) : "connection lost");
+                 (nread == -1) ? strerror(errno) : "connection lost");
+      }
+    }
+
+    if (nread <= 0) {
         replicationAbortSyncTransfer();
         return;
     }
+
     server.repl_transfer_lastio = time(NULL);
     if (write(server.repl_transfer_fd,buf,nread) != nread) {
         redisLog(REDIS_WARNING,"Write error or short write writing to the DB dump file needed for MASTER <-> SLAVE synchrnonization: %s", strerror(errno));
         goto error;
     }
+
     server.repl_transfer_left -= nread;
     /* Check if the transfer is now complete */
     if (server.repl_transfer_left == 0) {
@@ -344,6 +415,9 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
         zfree(server.repl_transfer_tmpfile);
         close(server.repl_transfer_fd);
         server.master = createClient(server.repl_transfer_s);
+        if( server.repl_transfer_ssl.ssl ) {
+          server.master->ssl = server.repl_transfer_ssl;
+        }
         server.master->flags |= REDIS_MASTER;
         server.master->authenticated = 1;
         server.replstate = REDIS_REPL_CONNECTED;
@@ -385,13 +459,16 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
         size_t authlen;
 
         authlen = snprintf(authcmd,sizeof(authcmd),"AUTH %s\r\n",server.masterauth);
-        if (syncWrite(fd,authcmd,authlen,server.repl_syncio_timeout) == -1) {
+        // TODO:
+        if (syncWrite(fd, server.repl_transfer_ssl.ssl, authcmd,authlen,server.repl_syncio_timeout) == -1) {
             redisLog(REDIS_WARNING,"Unable to AUTH to MASTER: %s",
                 strerror(errno));
             goto error;
         }
+
+        // TODO:
         /* Read the AUTH result.  */
-        if (syncReadLine(fd,buf,1024,server.repl_syncio_timeout) == -1) {
+        if (syncReadLine(fd,server.repl_transfer_ssl.ssl,buf,1024,server.repl_syncio_timeout) == -1) {
             redisLog(REDIS_WARNING,"I/O error reading auth result from MASTER: %s",
                 strerror(errno));
             goto error;
@@ -402,8 +479,9 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
         }
     }
 
+    // TODO:
     /* Issue the SYNC command */
-    if (syncWrite(fd,"SYNC \r\n",7,server.repl_syncio_timeout) == -1) {
+    if (syncWrite(fd,server.repl_transfer_ssl.ssl,"SYNC \r\n",7,server.repl_syncio_timeout) == -1) {
         redisLog(REDIS_WARNING,"I/O error writing to MASTER: %s",
             strerror(errno));
         goto error;
@@ -445,8 +523,19 @@ error:
 
 int connectWithMaster(void) {
     int fd;
+    char connectErrorBuf[1024];
+    anetSSLConnection  sslctn;
 
-    fd = anetTcpNonBlockConnect(NULL,server.masterhost,server.masterport);
+    if( server.ssl ) {
+      fd = anetSSLGenericConnect(connectErrorBuf, server.masterhost,server.masterport, 0, &sslctn, server.ssl_root_dir );
+      if( fd < 0 ) {
+        redisLog(REDIS_WARNING,"Unable to connect to MASTER via SSL: %s", connectErrorBuf );
+        return REDIS_ERR;
+      }
+    } else {
+      fd = anetTcpNonBlockConnect(NULL,server.masterhost,server.masterport);
+    }
+
     if (fd == -1) {
         redisLog(REDIS_WARNING,"Unable to connect to MASTER: %s",
             strerror(errno));
@@ -463,6 +552,11 @@ int connectWithMaster(void) {
 
     server.repl_transfer_lastio = time(NULL);
     server.repl_transfer_s = fd;
+
+    if( server.ssl ) {
+      server.repl_transfer_ssl = sslctn;
+    }
+
     server.replstate = REDIS_REPL_CONNECTING;
     return REDIS_OK;
 }
@@ -474,6 +568,11 @@ void undoConnectWithMaster(void) {
 
     redisAssert(server.replstate == REDIS_REPL_CONNECTING);
     aeDeleteFileEvent(server.el,fd,AE_READABLE|AE_WRITABLE);
+
+    if( server.repl_transfer_ssl.ssl ) {
+      anetCleanupSSL( &server.repl_transfer_ssl );
+    }
+
     close(fd);
     server.repl_transfer_s = -1;
     server.replstate = REDIS_REPL_CONNECT;
