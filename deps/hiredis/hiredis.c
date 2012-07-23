@@ -1015,13 +1015,13 @@ void redisFree(redisContext *c) {
 /* Connect to a Redis instance. On error the field error in the returned
  * context will be set to the return value of the error function.
  * When no set of reply functions is given, the default set will be used. */
-redisContext *redisConnect(const char *ip, int port, int ssl, char* certfile ) {
+redisContext *redisConnect(const char *ip, int port, int ssl, char* certfile, char* certdir ) {
     redisContext *c = redisContextInit();
     c->flags |= REDIS_BLOCK;
 
     if( ssl ) {
       setupSSL();
-      redisContextConnectSSL(c,ip,port,certfile,NULL);
+      redisContextConnectSSL(c,ip,port,certfile,certdir,NULL);
     } else {
       redisContextConnectTcp(c,ip,port,NULL);
     }

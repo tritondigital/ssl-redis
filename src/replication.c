@@ -527,7 +527,7 @@ int connectWithMaster(void) {
     anetSSLConnection  sslctn;
 
     if( server.ssl ) {
-      fd = anetSSLGenericConnect(connectErrorBuf, server.masterhost,server.masterport, 0, &sslctn, server.ssl_root_dir );
+      fd = anetSSLGenericConnect(connectErrorBuf, server.masterhost,server.masterport, 0, &sslctn, server.ssl_root_file, server.ssl_root_dir, server.ssl_srvr_cert_common_name );
       if( fd < 0 ) {
         redisLog(REDIS_WARNING,"Unable to connect to MASTER via SSL: %s", connectErrorBuf );
         return REDIS_ERR;

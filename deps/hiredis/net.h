@@ -44,7 +44,7 @@ int redisContextSetTimeout(redisContext *c, struct timeval tv);
 int redisContextConnectTcp(redisContext *c, const char *addr, int port, struct timeval *timeout);
 int redisContextConnectUnix(redisContext *c, const char *path, struct timeval *timeout);
 
-int redisContextConnectSSL(redisContext *c, const char *addr, int port, char* certfile, struct timeval *timeout);
+int redisContextConnectSSL(redisContext *c, const char *addr, int port, char* certfile, char* certdir, struct timeval *timeout);
 void cleanupSSL( SSLConnection* ctn );
 void setupSSL();
 

@@ -213,7 +213,7 @@ static int anetTcpGenericConnect(char *err, char *addr, int port, int flags)
     return s;
 }
 
-int anetSSLGenericConnect( char* err, char* addr, int port, int flags, anetSSLConnection* sslctn, char* certFilePath ) {
+int anetSSLGenericConnect( char* err, char* addr, int port, int flags, anetSSLConnection* sslctn, char* certFilePath, char* certDirPath, char* checkCommonName ) {
   sslctn->sd = -1;
   sslctn->ctx = NULL;
   sslctn->ssl = NULL;
@@ -221,7 +221,7 @@ int anetSSLGenericConnect( char* err, char* addr, int port, int flags, anetSSLCo
   sslctn->conn_str = NULL;
 
   // Set up a SSL_CTX object, which will tell our BIO object how to do its work
-  SSL_CTX* ctx = SSL_CTX_new(SSLv23_client_method());
+  SSL_CTX* ctx = SSL_CTX_new(SSLv3_client_method());
   sslctn->ctx = ctx;
 
   // Create a SSL object pointer, which our BIO object will provide.
@@ -257,7 +257,7 @@ int anetSSLGenericConnect( char* err, char* addr, int port, int flags, anetSSLCo
   // We're connection to google.com on port 443.
   BIO_set_conn_hostname(bio, connect_str);
 
-  SSL_CTX_load_verify_locations(ctx, NULL, certFilePath);
+  SSL_CTX_load_verify_locations(ctx, certFilePath, certDirPath);
 
   // Same as before, try to connect.
   if (BIO_do_connect(bio) <= 0) {
@@ -284,14 +284,14 @@ int anetSSLGenericConnect( char* err, char* addr, int port, int flags, anetSSLCo
     char commonName [512];
     X509_NAME * name = X509_get_subject_name(peerCertificate);
     X509_NAME_get_text_by_NID(name, NID_commonName, commonName, 512);
-
-    if(strcasecmp(commonName, "BradBroerman") != 0) {
-      anetSetError(err, "SSL Error: Error validating peer common name: %s\n", commonName);
-      anetCleanupSSL( sslctn );
-      return ANET_ERR;
+    if( checkCommonName != NULL && strlen( checkCommonName ) > 0 ) {
+      if(wildcmp(commonName, checkCommonName, strlen(checkCommonName)) == 0) {
+        anetSetError(err, "SSL Error: Error validating peer common name: %s\n", commonName);
+        anetCleanupSSL( sslctn );
+        return ANET_ERR;
+      }
     }
-  }
-  else {
+  } else {
      char errorbuf[1024];
      ERR_error_string(1024,errorbuf);
      anetSetError(err, "SSL Error: Error retrieving peer certificate: %s\n", errorbuf);
@@ -495,7 +495,7 @@ int anetSSLAccept( char *err, int fd, struct redisServer server, anetSSLConnecti
   ctn->sd = fd;
 
   // Create the SSL Context ( server method )
-  SSL_CTX* ctx = SSL_CTX_new(SSLv23_server_method());
+  SSL_CTX* ctx = SSL_CTX_new(SSLv3_server_method());
   ctn->ctx = ctx;
 
    /*
@@ -504,7 +504,7 @@ int anetSSLAccept( char *err, int fd, struct redisServer server, anetSSLConnecti
    */
 
     // Load trusted root authorities
-    SSL_CTX_load_verify_locations(ctx, NULL, server.ssl_root_dir);
+    SSL_CTX_load_verify_locations(ctx, server.ssl_root_file, server.ssl_root_dir);
 
     // Sets the default certificate password callback function. Read more under the Certificate Verification section.
     SSL_CTX_set_default_passwd_cb(ctx, password_callback);
@@ -649,3 +649,41 @@ void anetCleanupSSL( anetSSLConnection *ctn ) {
     }
   }
 }
+
+int wildcmp(const char *wild, const char *string, int len) {
+  int cp = 0;
+  int mp = 0;
+  int strn_cntr = len;
+  int wild_cntr = strlen(wild);
+
+  while( (*(wild+wild_cntr) != '*') && strn_cntr >= 0 && wild_cntr >= 0 ) {
+    if ((*(wild+wild_cntr) != *(string+strn_cntr)) && (*(wild+wild_cntr) != '?')) {
+      return 0;
+    }
+    wild_cntr--;
+    strn_cntr--;
+  }
+
+  while( ( wild_cntr >= 0 ) && ( strn_cntr >= 0 ) ) {
+    if( *(wild+wild_cntr) == '*') {
+      if( --wild_cntr < 0 ) {
+        return 1;
+      }
+      mp = wild_cntr;
+      cp = strn_cntr-1;
+    } else if ((*(wild+wild_cntr) == *(string+strn_cntr)) || (*(wild+wild_cntr) == '?')) {
+      wild_cntr--;
+      strn_cntr--;
+    } else {
+      wild_cntr = mp;
+      strn_cntr = cp--;
+    }
+  }
+
+  while (*(wild+wild_cntr) == '*') {
+    wild_cntr--;
+  }
+
+  return ( (wild_cntr == -1) && (strn_cntr == -1) );
+}
+

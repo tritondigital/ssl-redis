@@ -354,9 +354,11 @@ typedef struct redisServer {
     char *unixsocket;
     int ssl;
     char* ssl_root_dir;
+    char* ssl_root_file;
     char* ssl_cert_file;
     char* ssl_pk_file;
     char* ssl_dhk_file;
+    char* ssl_srvr_cert_common_name;
     mode_t unixsocketperm;
     int ipfd;
     int sofd;

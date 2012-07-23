@@ -177,7 +177,7 @@ typedef struct redisContext {
     redisReader *reader; /* Protocol reader */
 } redisContext;
 
-redisContext *redisConnect(const char *ip, int port, int ssl, char* certfile );
+redisContext *redisConnect(const char *ip, int port, int ssl, char* certfile, char* certDir );
 redisContext *redisConnectWithTimeout(const char *ip, int port, struct timeval tv);
 redisContext *redisConnectNonBlock(const char *ip, int port);
 redisContext *redisConnectUnix(const char *path);

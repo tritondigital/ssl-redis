@@ -16,14 +16,21 @@ This is a work-in-progress. Currently, the connection between the redis-cli and 
 
 To enable SSL on redis-server, add these lines to the redis.config:
 ssl true
-ssl_root_dir <Path to your openSSL root certificates directory>
+ssl_ca_root_dir < Path to your openSSL root certificates directory >
+ssl_ca_root_file < Path to your openSSL root certificate file (You must specify either a root CA file, or a directory, but not both) >
 ssl_cert_file <Path to your server's SSL cert>
 ssl_pk_file <Path to your server's private key file (may be the same as above)>
 ssl_dhk_file <Path to your Diffie-Hellman data file>
 
 
 To enable SSL on redis-client:
-./redis-cli -h <optional host> -p <optional port> -ssl -cert <optional path to the openSSL root certificate directory>
+./redis-cli -h <optional host> -p <optional port> -ssl 
+
+to specify a Root Certificate Authority file or directory, you should use:
+    -cadir  <optional path to the openSSL root certificate directory>
+    -cafile <optional path to the openSSL root certificate file>
+    
+You should specify a file, or a path, but not both. If neither are specified, it will default to the directory /etc/ssl/certs
 
 
 Where to find complete Redis documentation?

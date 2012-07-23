@@ -75,14 +75,18 @@ void loadServerConfig(char *filename) {
               !strcasecmp(argv[1],"t") || !strcasecmp(argv[1],"true") ) {
             server.ssl = 1;
           }
-        } else if( !strcasecmp(argv[0],"ssl_root_dir") && argc == 2) {
+        } else if( !strcasecmp(argv[0],"ssl_ca_root_dir") && argc == 2) {
           server.ssl_root_dir = zstrdup(argv[1]);
+        } else if( !strcasecmp(argv[0],"ssl_ca_root_file") && argc == 2) {
+          server.ssl_root_file = zstrdup(argv[1]);
         } else if( !strcasecmp(argv[0],"ssl_cert_file") && argc == 2) {
           server.ssl_cert_file = zstrdup(argv[1]);
         } else if( !strcasecmp(argv[0],"ssl_pk_file") && argc == 2) {
           server.ssl_pk_file = zstrdup(argv[1]);
         } else if( !strcasecmp(argv[0],"ssl_dhk_file") && argc == 2) {
           server.ssl_dhk_file = zstrdup(argv[1]);
+        } else if( !strcasecmp(argv[0],"ssl_cert_common_name") && argc == 2) {
+          server.ssl_srvr_cert_common_name = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"bind") && argc == 2) {
             server.bindaddr = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"unixsocket") && argc == 2) {
@@ -358,9 +362,9 @@ void loadServerConfig(char *filename) {
     if (server.vm_enabled && !really_use_vm) goto vm_warning;
 
     if( server.ssl ) {
-      if( NULL == server.ssl_root_dir ) {
+      if( NULL == server.ssl_root_dir && NULL == server.ssl_root_file ) {
         fprintf( stderr, "\n*** FATAL CONFIG FILE ERROR ***\n");
-        fprintf( stderr, "SSL is enabled, but no certificate root directory is set.\n");
+        fprintf( stderr, "SSL is enabled, but no certificate root file or directory is set.\n");
         exit(1);
       }
       if( NULL == server.ssl_cert_file ) {

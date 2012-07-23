@@ -248,17 +248,12 @@ end:
     return rv;  // Need to return REDIS_OK if alright
 }
 
-int redisContextConnectSSL(redisContext *c, const char *addr, int port, char* certfile, struct timeval *timeout) {
+int redisContextConnectSSL(redisContext *c, const char *addr, int port, char* certfile, char* certdir, struct timeval *timeout) {
 
   c->ssl.sd = -1;
   c->ssl.ctx = NULL;
   c->ssl.ssl = NULL;
   c->ssl.bio = NULL;
-
-  const char* valid_cert = certfile;
-  if( NULL == certfile || strlen( certfile ) == 0 ) {
-    valid_cert = "/etc/ssl/certs";
-  }
 
   // Set up a SSL_CTX object, which will tell our BIO object how to do its work
   SSL_CTX* ctx = SSL_CTX_new(SSLv23_client_method());
@@ -298,7 +293,7 @@ int redisContextConnectSSL(redisContext *c, const char *addr, int port, char* ce
   // We're connection to google.com on port 443.
   BIO_set_conn_hostname(bio, connect_str);
 
-  SSL_CTX_load_verify_locations(ctx, NULL, valid_cert);
+  SSL_CTX_load_verify_locations(ctx, certfile, certdir);
 
   // Same as before, try to connect.
   if (BIO_do_connect(bio) <= 0) {
@@ -328,11 +323,8 @@ int redisContextConnectSSL(redisContext *c, const char *addr, int port, char* ce
     X509_NAME * name = X509_get_subject_name(peerCertificate);
     X509_NAME_get_text_by_NID(name, NID_commonName, commonName, 512);
 
-    if(strcasecmp(commonName, "BradBroerman") != 0) {
-      __redisSetError(c,REDIS_ERR_OTHER,"SSL Error: Error validating cert common name.\n\n" );
-      cleanupSSL( &(c->ssl) );
-      return REDIS_ERR;
-    }
+    fprintf( stdout, "Connected via SSL to '%s'. \n", commonName );
+
   }
   else {
      char errorbuf[1024];

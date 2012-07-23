@@ -805,6 +805,13 @@ void initServerConfig() {
     server.bindaddr = NULL;
     server.unixsocket = NULL;
     server.unixsocketperm = 0;
+    server.ssl_root_dir = NULL;
+    server.ssl_root_file = NULL;
+    server.ssl_cert_file = NULL;
+    server.ssl_pk_file = NULL;
+    server.ssl_dhk_file = NULL;
+    server.ssl_srvr_cert_common_name = NULL;
+
     server.ipfd = -1;
     server.sofd = -1;
     server.dbnum = REDIS_DEFAULT_DBNUM;
@@ -926,6 +933,10 @@ void initServer() {
       anetSSLPrepare( );
     }
 
+    server.repl_transfer_ssl.ssl = NULL;
+    server.repl_transfer_ssl.bio = NULL;
+    server.repl_transfer_ssl.ctx = NULL;
+    server.repl_transfer_ssl.conn_str = NULL;
 
     if (server.port != 0) {
         server.ipfd = anetTcpServer(server.neterr,server.port,server.bindaddr);

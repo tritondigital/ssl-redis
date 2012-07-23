@@ -60,9 +60,10 @@ int anetTcpNoDelay(char *err, int fd);
 int anetTcpKeepAlive(char *err, int fd);
 int anetPeerToString(int fd, char *ip, int *port);
 
-int anetSSLGenericConnect( char* err, char* addr, int port, int flags, anetSSLConnection* sslctn, char* certFilePath );
+int anetSSLGenericConnect( char* err, char* addr, int port, int flags, anetSSLConnection* sslctn, char* certFilePath, char* certDirPath, char* commonname );
 int anetSSLAccept( char *err, int fd, redisServer server, anetSSLConnection *ctn);
 void anetSSLPrepare( );
 void anetCleanupSSL( anetSSLConnection *sslctn );
+int wildcmp(const char *wild, const char *string, int len);
 
 #endif
