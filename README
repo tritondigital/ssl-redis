@@ -11,7 +11,8 @@ The original source is: https://github.com/antirez/redis/tree/2.4
 The home website fo redis is: http://redis.io/
 
 
-This is a work-in-progress. Currently, the connection between the redis-cli and redis-server are available in SSL. replication, watchers, and other connection types do not yet work. I am working on these, and will update as soon as they are working.
+This is a work-in-progress. I will be making updates as I test, find bugs, or other issues.
+If you find bugs, or have isues, please contact me at bbroerman@tritonmedia.com
 
 
 To enable SSL on redis-server, add these lines to the redis.config:
