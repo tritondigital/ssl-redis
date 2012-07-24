@@ -99,7 +99,6 @@ int anetNonBlock(char *err, int fd)
         return ANET_ERR;
     }
     
-// TODO: BBROERMAN _ Removed non-blocking    
     if (fcntl(fd, F_SETFL, flags | O_NONBLOCK) == -1) {
         anetSetError(err, "fcntl(F_SETFL,O_NONBLOCK): %s", strerror(errno));
         return ANET_ERR;
