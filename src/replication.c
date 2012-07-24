@@ -670,8 +670,12 @@ void replicationCron(void) {
                  * connection last interaction time, and at the same time
                  * we'll be sure that being a single char there are no
                  * short-write problems. */
-                if (write(slave->fd, "\n", 1) == -1) {
-                    /* Don't worry, it's just a ping. */
+                if( slave->ssl.ssl ) {
+                  SSL_write( slave->ssl.ssl,"\n", 1);
+                } else {
+                  if (write(slave->fd, "\n", 1) == -1) {
+                      /* Don't worry, it's just a ping. */
+                  }
                 }
             }
         }
