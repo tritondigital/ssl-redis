@@ -323,8 +323,11 @@ int redisContextConnectSSL(redisContext *c, const char *addr, int port, char* ce
     X509_NAME * name = X509_get_subject_name(peerCertificate);
     X509_NAME_get_text_by_NID(name, NID_commonName, commonName, 512);
 
-    fprintf( stdout, "Connected via SSL to '%s'. \n", commonName );
-
+    if(strcasecmp(commonName, "BradBroerman") != 0) {
+      __redisSetError(c,REDIS_ERR_OTHER,"SSL Error: Error validating cert common name.\n\n" );
+      cleanupSSL( &(c->ssl) );
+      return REDIS_ERR;
+    }
   }
   else {
      char errorbuf[1024];

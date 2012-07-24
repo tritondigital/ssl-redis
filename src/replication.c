@@ -298,7 +298,7 @@ void replicationAbortSyncTransfer(void) {
     redisAssert(server.replstate == REDIS_REPL_TRANSFER);
 
     aeDeleteFileEvent(server.el,server.repl_transfer_s,AE_READABLE);
-    anetCleanupSSL( &server.repl_transfer_ssl );
+    anetCleanupSSL( &(server.repl_transfer_ssl ) );
     close(server.repl_transfer_s);
     close(server.repl_transfer_fd);
     unlink(server.repl_transfer_tmpfile);
@@ -525,6 +525,10 @@ int connectWithMaster(void) {
     int fd;
     char connectErrorBuf[1024];
     anetSSLConnection  sslctn;
+    sslctn.ssl = NULL;
+    sslctn.bio = NULL;
+    sslctn.ctx = NULL;
+    sslctn.conn_str = NULL;
 
     if( server.ssl ) {
       fd = anetSSLGenericConnect(connectErrorBuf, server.masterhost,server.masterport, 0, &sslctn, server.ssl_root_file, server.ssl_root_dir, server.ssl_srvr_cert_common_name );
@@ -570,7 +574,7 @@ void undoConnectWithMaster(void) {
     aeDeleteFileEvent(server.el,fd,AE_READABLE|AE_WRITABLE);
 
     if( server.repl_transfer_ssl.ssl ) {
-      anetCleanupSSL( &server.repl_transfer_ssl );
+      anetCleanupSSL( &( server.repl_transfer_ssl ) );
     }
 
     close(fd);

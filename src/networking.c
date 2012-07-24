@@ -39,6 +39,7 @@ redisClient *createClient(int fd) {
     c->ssl.bio = NULL;
     c->ssl.ssl = NULL;
     c->ssl.ctx = NULL;
+    c->ssl.conn_str = NULL;
     c->ssl.sd = -1;
     c->querybuf = sdsempty();
     c->reqtype = 0;
@@ -431,17 +432,18 @@ void copyClientOutputBuffer(redisClient *dst, redisClient *src) {
     dst->reply_bytes = src->reply_bytes;
 }
 
-static void acceptCommonHandler(int fd, anetSSLConnection sslctn) {
+static void acceptCommonHandler(int fd, anetSSLConnection *sslctn) {
     redisClient *c;
     if ((c = createClient(fd)) == NULL) {
         redisLog(REDIS_WARNING,"Error allocating resoures for the client");
         close(fd); /* May be already closed, just ingore errors */
+        anetCleanupSSL( sslctn );
         return;
     }
 
     // If we're talking SSL, and we have a valid SSL connection, set the client's pointer to the ssl connection info.
-    if( server.ssl && sslctn.ssl != NULL ) {
-      c->ssl = sslctn;
+    if( server.ssl && sslctn->ssl != NULL ) {
+      c->ssl = *sslctn;
     }
 
     /* If maxclient directive is set and this is one client more... close the
@@ -471,6 +473,12 @@ void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     REDIS_NOTUSED(mask);
     REDIS_NOTUSED(privdata);
 
+    sslctn.ctx = NULL;
+    sslctn.ssl = NULL;
+    sslctn.bio = NULL;
+    sslctn.conn_str = NULL;
+
+
     cfd = anetTcpAccept(server.neterr, fd, cip, &cport);
     if (cfd == AE_ERR) {
         redisLog(REDIS_WARNING,"Accepting client connection: %s", server.neterr);
@@ -490,7 +498,7 @@ void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     
     redisLog(REDIS_VERBOSE,"Accepted %s:%d", cip, cport);
 
-    acceptCommonHandler(cfd, sslctn);
+    acceptCommonHandler(cfd, &sslctn);
 }
 
 void acceptUnixHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
@@ -500,13 +508,19 @@ void acceptUnixHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     REDIS_NOTUSED(mask);
     REDIS_NOTUSED(privdata);
 
+    dummy_sslctn.ctx = NULL;
+    dummy_sslctn.ssl = NULL;
+    dummy_sslctn.bio = NULL;
+    dummy_sslctn.conn_str = NULL;
+
+
     cfd = anetUnixAccept(server.neterr, fd);
     if (cfd == AE_ERR) {
         redisLog(REDIS_WARNING,"Accepting client connection: %s", server.neterr);
         return;
     }
     redisLog(REDIS_VERBOSE,"Accepted connection to %s", server.unixsocket);
-    acceptCommonHandler(cfd,dummy_sslctn);
+    acceptCommonHandler(cfd, &dummy_sslctn);
 }
 
 

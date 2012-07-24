@@ -1002,7 +1002,7 @@ static redisContext *redisContextInit(void) {
 }
 
 void redisFree(redisContext *c) {
-    cleanupSSL( &c->ssl );
+    cleanupSSL( &(c->ssl) );
     if (c->fd > 0)
         close(c->fd);
     if (c->obuf != NULL)

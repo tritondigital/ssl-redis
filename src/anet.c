@@ -628,20 +628,22 @@ void anetSSLPrepare( ) {
 
 void anetCleanupSSL( anetSSLConnection *ctn ) {
   if( NULL != ctn ) {
-    if( NULL != ctn->bio ) {
+/*    if( NULL != ctn->bio ) {
       // Free up that BIO object we created.
       BIO_free_all(ctn->bio);
       ctn->bio = NULL;
     }
-    if( NULL != ctn->ctx ) {
-      // Remember, we also need to free up that SSL_CTX object!
-      SSL_CTX_free(ctn->ctx);
-      ctn->ctx = NULL;
-    }
+*/
     if( NULL != ctn->ssl ) {
       // Remember, we also need to free up that SSL_CTX object!
       SSL_free(ctn->ssl);
       ctn->ssl = NULL;
+    }
+
+    if( NULL != ctn->ctx ) {
+      // Remember, we also need to free up that SSL_CTX object!
+      SSL_CTX_free(ctn->ctx);
+      ctn->ctx = NULL;
     }
     if( NULL != ctn->conn_str ) {
       free(ctn->conn_str);
