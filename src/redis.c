@@ -811,7 +811,7 @@ void initServerConfig() {
     server.ssl_pk_file = NULL;
     server.ssl_dhk_file = NULL;
     server.ssl_srvr_cert_common_name = NULL;
-
+    server.ssl_srvr_cert_passwd = NULL;
     server.ipfd = -1;
     server.sofd = -1;
     server.dbnum = REDIS_DEFAULT_DBNUM;

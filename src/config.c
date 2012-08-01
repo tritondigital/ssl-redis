@@ -87,6 +87,8 @@ void loadServerConfig(char *filename) {
           server.ssl_dhk_file = zstrdup(argv[1]);
         } else if( !strcasecmp(argv[0],"ssl_cert_common_name") && argc == 2) {
           server.ssl_srvr_cert_common_name = zstrdup(argv[1]);
+        } else if( !strcasecmp(argv[0],"ssl_cert_pass") && argc == 2) {
+          server.ssl_srvr_cert_passwd = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"bind") && argc == 2) {
             server.bindaddr = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"unixsocket") && argc == 2) {

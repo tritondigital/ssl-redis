@@ -47,14 +47,14 @@
 
 #include "anet.h"
 
-#define PASSWORD "zum27lar"
+char* global_ssl_cert_password = NULL;
 
 int password_callback(char* buffer, int num, int rwflag, void* userdata) {
-    if (num < (strlen(PASSWORD) + 1)) {
-  return(0);
+    if ( NULL == global_ssl_cert_password || num < (strlen(global_ssl_cert_password) + 1)) {
+      return(0);
     }
-    strcpy(buffer, PASSWORD);
-    return strlen(PASSWORD);
+    strcpy(buffer, global_ssl_cert_password);
+    return strlen(global_ssl_cert_password);
 }
 
 int verify_callback(int ok, X509_STORE_CTX* store) {
@@ -506,7 +506,10 @@ int anetSSLAccept( char *err, int fd, struct redisServer server, anetSSLConnecti
     SSL_CTX_load_verify_locations(ctx, server.ssl_root_file, server.ssl_root_dir);
 
     // Sets the default certificate password callback function. Read more under the Certificate Verification section.
-    SSL_CTX_set_default_passwd_cb(ctx, password_callback);
+    if( NULL != server.ssl_srvr_cert_passwd ) {
+      global_ssl_cert_password = server.ssl_srvr_cert_passwd;
+      SSL_CTX_set_default_passwd_cb(ctx, password_callback);
+    }
 
     // Sets the certificate file to be used.
     SSL_CTX_use_certificate_file(ctx, server.ssl_cert_file, SSL_FILETYPE_PEM);
