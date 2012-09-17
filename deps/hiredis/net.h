@@ -34,6 +34,9 @@
 #define __NET_H
 
 #include "hiredis.h"
+#include <openssl/bio.h> // BIO objects for I/O
+#include <openssl/ssl.h> // SSL and SSL_CTX for SSL connections
+#include <openssl/err.h> // Error reporting
 
 #if defined(__sun)
 #define AF_LOCAL AF_UNIX
@@ -43,10 +46,8 @@ int redisCheckSocketError(redisContext *c, int fd);
 int redisContextSetTimeout(redisContext *c, struct timeval tv);
 int redisContextConnectTcp(redisContext *c, const char *addr, int port, struct timeval *timeout);
 int redisContextConnectUnix(redisContext *c, const char *path, struct timeval *timeout);
-
-int redisContextConnectSSL(redisContext *c, const char *addr, int port, char* certfile, char* certdir, struct timeval *timeout);
-void cleanupSSL( SSLConnection* ctn );
-void setupSSL();
-
+int redisContextConnectSSL(redisContext *c, const char *addr, int port, const char *certFilePath, const char* certDirPath, const char* checkCommonName, struct timeval *timeout ); //char *certFilePath, char* certDirPath, char* checkCommonName,
+void anetCleanupSSL( netSSLConnection *sslctn );
+int wildcmp(const char *wild, const char *string, int len);
 
 #endif

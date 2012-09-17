@@ -447,9 +447,9 @@ static int processMultiBulkItem(redisReader *r) {
     int root = 0;
 
     /* Set error for nested multi bulks with depth > 2 */
-    if (r->ridx == 8) {
+    if (r->ridx == 3) {
         __redisReaderSetError(r,REDIS_ERR_PROTOCOL,
-            "No support for nested multi bulk replies with depth > 7");
+            "No support for nested multi bulk replies with depth > 2");
         return REDIS_ERR;
     }
 
@@ -590,7 +590,6 @@ int redisReaderFeed(redisReader *r, const char *buf, size_t len) {
 
     /* Copy the provided buffer. */
     if (buf != NULL && len >= 1) {
-#if 0
         /* Destroy internal buffer when it is empty and is quite large. */
         if (r->len == 0 && sdsavail(r->buf) > 16*1024) {
             sdsfree(r->buf);
@@ -600,7 +599,6 @@ int redisReaderFeed(redisReader *r, const char *buf, size_t len) {
             /* r->buf should not be NULL since we just free'd a larger one. */
             assert(r->buf != NULL);
         }
-#endif
 
         newbuf = sdscatlen(r->buf,buf,len);
         if (newbuf == NULL) {
@@ -751,7 +749,6 @@ int redisvFormatCommand(char **target, const char *format, va_list ap) {
             default:
                 /* Try to detect printf format */
                 {
-                    static const char intfmts[] = "diouxX";
                     char _format[16];
                     const char *_p = c+1;
                     size_t _l = 0;
@@ -777,7 +774,7 @@ int redisvFormatCommand(char **target, const char *format, va_list ap) {
                     va_copy(_cpy,ap);
 
                     /* Integer conversion (without modifiers) */
-                    if (strchr(intfmts,*_p) != NULL) {
+                    if (strchr("diouxX",*_p) != NULL) {
                         va_arg(ap,int);
                         goto fmt_valid;
                     }
@@ -791,7 +788,7 @@ int redisvFormatCommand(char **target, const char *format, va_list ap) {
                     /* Size: char */
                     if (_p[0] == 'h' && _p[1] == 'h') {
                         _p += 2;
-                        if (*_p != '\0' && strchr(intfmts,*_p) != NULL) {
+                        if (*_p != '\0' && strchr("diouxX",*_p) != NULL) {
                             va_arg(ap,int); /* char gets promoted to int */
                             goto fmt_valid;
                         }
@@ -801,7 +798,7 @@ int redisvFormatCommand(char **target, const char *format, va_list ap) {
                     /* Size: short */
                     if (_p[0] == 'h') {
                         _p += 1;
-                        if (*_p != '\0' && strchr(intfmts,*_p) != NULL) {
+                        if (*_p != '\0' && strchr("diouxX",*_p) != NULL) {
                             va_arg(ap,int); /* short gets promoted to int */
                             goto fmt_valid;
                         }
@@ -811,7 +808,7 @@ int redisvFormatCommand(char **target, const char *format, va_list ap) {
                     /* Size: long long */
                     if (_p[0] == 'l' && _p[1] == 'l') {
                         _p += 2;
-                        if (*_p != '\0' && strchr(intfmts,*_p) != NULL) {
+                        if (*_p != '\0' && strchr("diouxX",*_p) != NULL) {
                             va_arg(ap,long long);
                             goto fmt_valid;
                         }
@@ -821,7 +818,7 @@ int redisvFormatCommand(char **target, const char *format, va_list ap) {
                     /* Size: long */
                     if (_p[0] == 'l') {
                         _p += 1;
-                        if (*_p != '\0' && strchr(intfmts,*_p) != NULL) {
+                        if (*_p != '\0' && strchr("diouxX",*_p) != NULL) {
                             va_arg(ap,long);
                             goto fmt_valid;
                         }
@@ -1002,7 +999,7 @@ static redisContext *redisContextInit(void) {
 }
 
 void redisFree(redisContext *c) {
-    cleanupSSL( &(c->ssl) );
+    netCleanupSSL(&(c->ssl));
     if (c->fd > 0)
         close(c->fd);
     if (c->obuf != NULL)
@@ -1015,17 +1012,17 @@ void redisFree(redisContext *c) {
 /* Connect to a Redis instance. On error the field error in the returned
  * context will be set to the return value of the error function.
  * When no set of reply functions is given, the default set will be used. */
-redisContext *redisConnect(const char *ip, int port, int ssl, char* certfile, char* certdir ) {
+redisContext *redisConnect(const char *ip, int port) {
     redisContext *c = redisContextInit();
     c->flags |= REDIS_BLOCK;
+    redisContextConnectTcp(c,ip,port,NULL);
+    return c;
+}
 
-    if( ssl ) {
-      setupSSL();
-      redisContextConnectSSL(c,ip,port,certfile,certdir,NULL);
-    } else {
-      redisContextConnectTcp(c,ip,port,NULL);
-    }
-
+redisContext *redisConnectSSL(const char *ip, int port, const char *cafile, const char *certdir, const char *checkCommonName) {
+    redisContext *c = redisContextInit();
+    c->flags |= REDIS_BLOCK;
+    redisContextConnectSSL(c,ip,port,cafile,certdir,checkCommonName,NULL);
     return c;
 }
 
@@ -1077,14 +1074,13 @@ int redisSetTimeout(redisContext *c, struct timeval tv) {
  * After this function is called, you may use redisContextReadReply to
  * see if there is a reply available. */
 int redisBufferRead(redisContext *c) {
-    char buf[1024*16];
+    char buf[2048];
     int nread;
 
     /* Return early when the context has seen an error. */
     if (c->err)
         return REDIS_ERR;
-
-    if( c->ssl.ssl ) {
+    if (c->ssl.ssl) {
 
       nread = SSL_read( c->ssl.ssl, buf, sizeof(buf));
 
@@ -1106,7 +1102,6 @@ int redisBufferRead(redisContext *c) {
     } else {
       nread = read(c->fd,buf,sizeof(buf));
     }
-
     if (nread == -1) {
         if (errno == EAGAIN && !(c->flags & REDIS_BLOCK)) {
             /* Try again later */
@@ -1148,7 +1143,6 @@ int redisBufferWrite(redisContext *c, int *done) {
         } else {
           nwritten = write(c->fd,c->obuf,sdslen(c->obuf));
         }
-
         if (nwritten == -1) {
             if (errno == EAGAIN && !(c->flags & REDIS_BLOCK)) {
                 /* Try again later */
