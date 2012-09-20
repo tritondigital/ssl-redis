@@ -34,6 +34,7 @@
 #include <stdio.h> /* for size_t */
 #include <stdarg.h> /* for va_list */
 #include <sys/time.h> /* for struct timeval */
+
 #include <openssl/bio.h> // BIO objects for I/O
 #include <openssl/ssl.h> // SSL and SSL_CTX for SSL connections
 #include <openssl/err.h> // Error reporting
@@ -126,7 +127,7 @@ typedef struct redisReader {
     size_t pos; /* Buffer cursor */
     size_t len; /* Buffer length */
 
-    redisReadTask rstack[9];
+    redisReadTask rstack[4];
     int ridx; /* Index of current read task */
     void *reply; /* Temporary reply pointer */
 
@@ -157,27 +158,27 @@ int redisvFormatCommand(char **target, const char *format, va_list ap);
 int redisFormatCommand(char **target, const char *format, ...);
 int redisFormatCommandArgv(char **target, int argc, const char **argv, const size_t *argvlen);
 
-
-typedef struct SSLConnection {
+typedef struct netSSLConnection {
     SSL_CTX* ctx;    // SSL Context
     SSL*  ssl;       // SSL object
     BIO*  bio;       // The SSL BIO class
-    char* conn_str;  // Connection String.
     int   sd;        // raw client socket.
-} SSLConnection;
+    char* conn_str;  // connection string (for master/slave)
+} netSSLConnection;
 
 /* Context for a connection to Redis */
 typedef struct redisContext {
     int err; /* Error flags, 0 when there is no error */
     char errstr[128]; /* String representation of error when applicable */
     int fd;
-    SSLConnection ssl;
     int flags;
     char *obuf; /* Write buffer */
-    redisReader *reader; /* Protocol reader */
+    netSSLConnection ssl;
+    redisReader *reader; /* Protocol reader */    
 } redisContext;
 
-redisContext *redisConnect(const char *ip, int port, int ssl, char* certfile, char* certDir );
+redisContext *redisConnect(const char *ip, int port);
+redisContext *redisConnectSSL(const char *ip, int port, const char *cafile, const char *certdir, const char *checkCommonName);
 redisContext *redisConnectWithTimeout(const char *ip, int port, struct timeval tv);
 redisContext *redisConnectNonBlock(const char *ip, int port);
 redisContext *redisConnectUnix(const char *path);

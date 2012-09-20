@@ -116,8 +116,8 @@ static int redisSetTcpNoDelay(redisContext *c, int fd) {
     if (setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(yes)) == -1) {
         __redisSetErrorFromErrno(c,REDIS_ERR_IO,"setsockopt(TCP_NODELAY)");
         close(fd);
-       return REDIS_ERR;
-   }
+        return REDIS_ERR;
+    }
     return REDIS_OK;
 }
 
@@ -248,15 +248,44 @@ end:
     return rv;  // Need to return REDIS_OK if alright
 }
 
-int redisContextConnectSSL(redisContext *c, const char *addr, int port, char* certfile, char* certdir, struct timeval *timeout) {
+void netCleanupSSL( netSSLConnection *ctn ) {
+  if( NULL != ctn ) {
+    if( NULL != ctn->bio ) {
+      // Free up that BIO object we created.
+      BIO_free_all(ctn->bio);
+      ctn->bio = NULL;
+    }
+    if( NULL != ctn->ctx ) {
+      // Free up that SSL_CTX object!
+      SSL_CTX_free(ctn->ctx);
+      ctn->ctx = NULL;
+    }
+    if( NULL != ctn->conn_str ) {
+      free(ctn->conn_str);
+      ctn->conn_str = NULL;
+    }
+  }
+}
 
+int redisContextConnectSSL(redisContext *c, const char *addr, int port, const char *certFilePath, const char* certDirPath, const char* checkCommonName, struct timeval *timeout ) {
+
+  int blocking = (c->flags & REDIS_BLOCK);
+  int s;
+
+  CRYPTO_malloc_init(); // Initialize malloc, free, etc for OpenSSL's use
+  SSL_library_init(); // Initialize OpenSSL's SSL libraries
+  SSL_load_error_strings(); // Load SSL error strings
+  ERR_load_BIO_strings(); // Load BIO error strings
+
+  netSSLConnection* sslctn = &c->ssl;
   c->ssl.sd = -1;
   c->ssl.ctx = NULL;
   c->ssl.ssl = NULL;
   c->ssl.bio = NULL;
+  c->ssl.conn_str = NULL;
 
   // Set up a SSL_CTX object, which will tell our BIO object how to do its work
-  SSL_CTX* ctx = SSL_CTX_new(SSLv23_client_method());
+  SSL_CTX* ctx = SSL_CTX_new(SSLv3_client_method());
   c->ssl.ctx = ctx;
 
   // Create a SSL object pointer, which our BIO object will provide.
@@ -269,13 +298,14 @@ int redisContextConnectSSL(redisContext *c, const char *addr, int port, char* ce
   // Failure?
   if (bio == NULL) {
      char errorbuf[1024];
-     __redisSetError(c,REDIS_ERR_OTHER,"SSL Error: Error creating BIO!\n");
 
      ERR_error_string(1024,errorbuf);
-     __redisSetError(c,REDIS_ERR_OTHER,errorbuf);
+     char buf[1024+128];
+     snprintf(buf,sizeof(buf),"SSL Error: Error creating BIO: %s\n",errorbuf);
+     __redisSetError(c,REDIS_ERR_OTHER,buf);
 
      // We need to free up the SSL_CTX before we leave.
-     cleanupSSL( &c->ssl );
+     netCleanupSSL(sslctn);
      return REDIS_ERR;
   }
 
@@ -290,32 +320,42 @@ int redisContextConnectSSL(redisContext *c, const char *addr, int port, char* ce
   sprintf( connect_str, "%s:%d", addr, port );
   c->ssl.conn_str = connect_str;
 
-  // We're connection to google.com on port 443.
   BIO_set_conn_hostname(bio, connect_str);
+  SSL_CTX_load_verify_locations(ctx, certFilePath, certDirPath);
 
-  SSL_CTX_load_verify_locations(ctx, certfile, certdir);
+  // Set blocking behavior
+/*  if (blocking) {
+    BIO_set_nbio(bio, 0);
+  } else {
+    BIO_set_nbio(bio, 1);
+  }
+*/
 
   // Same as before, try to connect.
-  if (BIO_do_connect(bio) <= 0) {
+  if( BIO_do_connect(bio) <= 0) {
     char errorbuf[1024];
-     __redisSetError(c,REDIS_ERR_OTHER,"SSL Error: Failed to connect");
-     ERR_error_string(1024,errorbuf);
-     __redisSetError(c,REDIS_ERR_OTHER,errorbuf);
-     cleanupSSL( &(c->ssl) );
-     return REDIS_ERR;
+    ERR_error_string(1024,errorbuf);
+    char buf[1024+128];
+    snprintf(buf,sizeof(buf),"SSL Error: Failed to connect: %s\n",errorbuf);
+    __redisSetError(c,REDIS_ERR_OTHER,buf);
+
+    netCleanupSSL(sslctn);
+    return REDIS_ERR;
   }
-  
+
   // Now we need to do the SSL handshake, so we can communicate.
   if (BIO_do_handshake(bio) <= 0) {
     char errorbuf[1024];
-    __redisSetError(c,REDIS_ERR_OTHER,"SSL Error: handshake failure");
     ERR_error_string(1024,errorbuf);
-    __redisSetError(c,REDIS_ERR_OTHER,errorbuf);
-    cleanupSSL( &(c->ssl) );
+    char buf[1024+128];
+    snprintf(buf,sizeof(buf),"SSL Error: handshake failure: %s\n",errorbuf);
+    __redisSetError(c,REDIS_ERR_OTHER,buf);
+    netCleanupSSL(sslctn);
     return REDIS_ERR;
   }
 
   long verify_result = SSL_get_verify_result(ssl);
+
   if( verify_result == X509_V_OK) {
     X509* peerCertificate = SSL_get_peer_certificate(ssl);
 
@@ -323,52 +363,75 @@ int redisContextConnectSSL(redisContext *c, const char *addr, int port, char* ce
     X509_NAME * name = X509_get_subject_name(peerCertificate);
     X509_NAME_get_text_by_NID(name, NID_commonName, commonName, 512);
 
-    if(strcasecmp(commonName, "BradBroerman") != 0) {
-      __redisSetError(c,REDIS_ERR_OTHER,"SSL Error: Error validating cert common name.\n\n" );
-      cleanupSSL( &(c->ssl) );
-      return REDIS_ERR;
+    if( checkCommonName != NULL && strlen( checkCommonName ) > 0 ) {
+
+      if(wildcmp(commonName, checkCommonName, strlen(checkCommonName)) == 0) {
+        char buf[1024+128];
+        snprintf(buf,sizeof(buf),"SSL Error: Error validating peer common name: %s\n",commonName);
+        __redisSetError(c,REDIS_ERR_OTHER,buf);
+        netCleanupSSL(sslctn);
+        return REDIS_ERR;
+      }
     }
-  }
-  else {
+  } else {
+
      char errorbuf[1024];
-     __redisSetError(c,REDIS_ERR_OTHER,"SSL Error: Error retrieving peer certificate.\n" );
      ERR_error_string(1024,errorbuf);
-     __redisSetError(c,REDIS_ERR_OTHER,errorbuf);
-     cleanupSSL( &(c->ssl) );
+     char buf[1024+128];
+     snprintf(buf,sizeof(buf),"SSL Error: Error retrieving peer certificate: %s\n",errorbuf);
+     __redisSetError(c,REDIS_ERR_OTHER,buf);
+     netCleanupSSL(sslctn);
      return REDIS_ERR;
   }
+
+  s = BIO_get_fd( bio, NULL );
+
+  if (redisSetTcpNoDelay(c,s) != REDIS_OK)
+    return REDIS_ERR;
+
+  c->fd = s;
+  c->flags |= REDIS_CONNECTED;
 
   return REDIS_OK;
 }
 
-void cleanupSSL( SSLConnection* ctn ) {
-  if( NULL != ctn ) {
-    if( NULL != ctn->ctx ) {
-      // Remember, we also need to free up that SSL_CTX object!
-      SSL_CTX_free(ctn->ctx);
-      ctn->ctx = NULL;
+int wildcmp(const char *wild, const char *string, int len) {
+  int cp = 0;
+  int mp = 0;
+  int strn_cntr = len;
+  int wild_cntr = strlen(wild);
+
+  while( (*(wild+wild_cntr) != '*') && strn_cntr >= 0 && wild_cntr >= 0 ) {
+    if ((*(wild+wild_cntr) != *(string+strn_cntr)) && (*(wild+wild_cntr) != '?')) {
+      return 0;
     }
-    if( NULL != ctn->bio ) {
-      // Free up that BIO object we created.
-      BIO_free_all(ctn->bio);
-      ctn->bio = NULL;
-    }
-    if( NULL != ctn->conn_str ) {
-      free( ctn->conn_str );
-      ctn->conn_str = NULL;
+    wild_cntr--;
+    strn_cntr--;
+  }
+
+  while( ( wild_cntr >= 0 ) && ( strn_cntr >= 0 ) ) {
+    if( *(wild+wild_cntr) == '*') {
+      if( --wild_cntr < 0 ) {
+        return 1;
+      }
+      mp = wild_cntr;
+      cp = strn_cntr-1;
+    } else if ((*(wild+wild_cntr) == *(string+strn_cntr)) || (*(wild+wild_cntr) == '?')) {
+      wild_cntr--;
+      strn_cntr--;
+    } else {
+      wild_cntr = mp;
+      strn_cntr = cp--;
     }
   }
 
-  return;
+  while (*(wild+wild_cntr) == '*') {
+    wild_cntr--;
+  }
+
+  return ( (wild_cntr == -1) && (strn_cntr == -1) );
 }
 
-void setupSSL() {
-  CRYPTO_malloc_init(); // Initialize malloc, free, etc for OpenSSL's use
-  SSL_library_init(); // Initialize OpenSSL's SSL libraries
-  SSL_load_error_strings(); // Load SSL error strings
-  ERR_load_BIO_strings(); // Load BIO error strings
-  OpenSSL_add_all_algorithms(); // Load all available encryption algorithms
-}
 
 int redisContextConnectUnix(redisContext *c, const char *path, struct timeval *timeout) {
     int s;
