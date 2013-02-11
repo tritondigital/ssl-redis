@@ -13,6 +13,7 @@ other contributors, as listed in the code.
 The original source is: https://github.com/antirez/redis/tree/2.4
 The home website fo redis is: http://redis.io/
 
+This fork is no longer being maintained. For updates, including an in-progress update of 2.6 please see https://github.com/bbroerman30/ssl-redis
 
 This is a work-in-progress. I will be making updates as I test, find bugs, or other issues.
 If you find bugs, or have isues, please contact me at bbroerman@tritonmedia.com
